@@ -1,0 +1,145 @@
+#! /usr/bin/env python
+
+from collections import defaultdict
+
+import psutil, os, time, socket
+import gevent.monkey
+gevent.monkey.patch_all()
+
+from xnode import xadd, xnode_client
+
+
+class CpuStat(object):
+    pass
+
+
+class ProcStat(object):
+    __slots__ = ['name', 'pid', 'cpu', 'mem_mb', 'threads', 'mem_mb', 'cmd']
+    __xslots_order__ = ['name', 'pid', 'cpu', 'mem_mb', 'threads', 'mem_mb', 'cmd']
+
+class DiskIOStat(object):
+    pass
+
+
+class NicStat(object):
+    pass
+
+
+class TopStat(object):
+    pass
+
+
+percpu_stats = defaultdict(CpuStat)
+perproc_stats = defaultdict(ProcStat)
+perdisk_stats = defaultdict(DiskIOStat)
+pernic_stats = defaultdict(NicStat)
+top = TopStat()
+
+
+def update_cpu_stats():
+    """Update and/or return the per CPU list using the psutil library."""
+    # Never update more than 1 time per cached_time
+    for cpu_number, cputimes in enumerate(psutil.cpu_times_percent(interval=0.0, percpu=True)):
+        cpu_stat = percpu_stats[cpu_number]
+        cpu_stat.cpu_number = cpu_number
+        cpu_stat.total = round(100 - cputimes.idle, 1)
+        percpu_stats[cpu_number] = cpu_stat
+
+
+def is_kernel_thread(proc):
+    """Return True if proc is a kernel thread, False instead."""
+    try:
+        return os.getpgid(proc.pid) == 0
+    # Python >= 3.3 raises ProcessLookupError, which inherits OSError
+    except OSError:
+        # return False is process is dead
+        return False
+
+
+def update_processes_stats():
+    tmp_psutil = {}
+    for proc in psutil.process_iter():
+        try:
+            proc_stat = ProcStat()
+            proc_stat.pid = proc.pid
+            #proc_stat.is_kernel = is_kernel_thread(proc)
+            proc_stat.cpu = proc.cpu_percent()
+            proc_stat.mem_mb = round(proc.memory_info()[0]/1024/1024, 2)
+            proc_stat.name = proc.name()
+            try:
+                proc_stat.cmd = ' '.join(proc.cmdline())
+            except IndexError:
+                proc_stat.cmd = ''
+            proc_stat.threads = proc.num_threads()
+
+            # not for macos, should be accamulated for rate
+            # proc_io = proc.io_counters()
+            # io_read_bytes = proc_io.read_bytes
+            # io_write_bytes = proc_io.write_bytes
+            tmp_psutil[proc.pid] = proc_stat
+        except psutil.AccessDenied:
+            continue
+        except psutil.NoSuchProcess:
+            continue
+    perproc_stats.clear()
+    perproc_stats.update(tmp_psutil)
+
+
+def update_diskio_stats():
+    try:
+        diskiocounters = psutil.disk_io_counters(perdisk=True)
+    except Exception:
+        return
+    for (diskname, new_diskstats) in diskiocounters.items():
+        disk_stats = perdisk_stats[diskname]
+        disk_stats.disk_name = diskname
+        disk_stats.read_count = new_diskstats.read_count
+        disk_stats.write_count = new_diskstats.write_count
+        disk_stats.read_bytes = new_diskstats.read_bytes
+        disk_stats.write_bytes = new_diskstats.write_bytes
+        disk_stats.read_time = new_diskstats.read_time
+        disk_stats.write_time = new_diskstats.write_time
+
+
+def update_network_stats():
+    try:
+        netiocounters = psutil.net_io_counters(pernic=True)
+    except UnicodeDecodeError:
+        return
+    for (nicname, new_nicstats) in netiocounters.items():
+        nic_stats = pernic_stats[nicname]
+        nic_stats.nic_name = nicname
+        nic_stats.bytes_sent = new_nicstats.bytes_sent
+        nic_stats.bytes_recv = new_nicstats.bytes_recv
+        nic_stats.packets_sent = new_nicstats.packets_sent
+        nic_stats.packets_recv = new_nicstats.packets_recv
+
+
+def update_top():
+    top.cpu = psutil.cpu_percent(interval=0.0, percpu=False)
+    try:
+        top.mem = round(float(psutil.used_phymem()) / psutil.TOTAL_PHYMEM * 100, 2)
+    except AttributeError:  # in new psutil
+        top.mem = round(float(psutil.virtual_memory().percent), 2)
+
+
+# parsing args
+def main():
+    xnode_client('monitor', node_index=socket.gethostname())
+    xadd(percpu_stats, '/cpu', allow_ref=True)
+    xadd(perproc_stats, '/processes', allow_ref=True)
+    xadd(perdisk_stats, '/diskio', allow_ref=True)
+    xadd(pernic_stats, '/netowrk', allow_ref=True)
+    xadd(top, '/summary', allow_ref=True)
+    print('app loaded')
+    while True:
+        update_cpu_stats()
+        update_processes_stats()
+        update_diskio_stats()
+        update_network_stats()
+        update_top()
+        time.sleep(1.1)
+    printprint('end')
+
+if __name__ == '__main__':
+    main()
