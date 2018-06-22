@@ -6,7 +6,7 @@ import psutil, os, time, socket
 import gevent.monkey
 gevent.monkey.patch_all()
 
-from xnode import xadd, xnode_client
+from pyxray.xnode import xadd, xnode_client
 
 
 class CpuStat(object):
