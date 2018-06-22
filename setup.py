@@ -3,9 +3,6 @@
 from distutils.core import setup
 from setuptools import find_packages
 
-# pip install -e .                                              # install from source
-# python setup.py sdist                                         # create dist
-# sudo pip install --no-index --find-links=./dist/ xray         # install dist
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
@@ -30,5 +27,6 @@ setup(
         'zmq',
         'gevent',
         'psutil',
+        'FixedList',
     ],
 )

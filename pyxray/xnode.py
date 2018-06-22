@@ -1,21 +1,23 @@
 import threading
 import atexit
-import sys, time
+import sys
+import time
 import collections
 import weakref
 from copy import deepcopy
 import socket
 from datetime import datetime
 
-#from FixedList import FixedList
+from FixedList import FixedList
 
 try:
-    import os, gevent
+    import os
+    import gevent
     if os.fork == gevent.fork:
         import zmq.green as zmq
     else:
         import zmq
-except:
+except ImportError:
     import zmq
 
 
@@ -43,12 +45,18 @@ TIMESTAMP_SLOT = 0
 def do_nothing():
     pass
 
+
 enabled_features = dict()
 
 
 class XPathNode:
 
-    def __init__(self, father_pnode, name, obj=None, allow_ref=False, toggle_feature=None):
+    def __init__(self,
+                 father_pnode,
+                 name,
+                 obj=None,
+                 allow_ref=False,
+                 toggle_feature=None):
         self.father = father_pnode
         self.name = name
         self.sons = dict()
@@ -61,7 +69,8 @@ class XPathNode:
 
     def set_xobj(self, obj, allow_ref):
         try:
-            self.xobj = weakref.ref(obj, lambda ref, rem_obj=obj: xremove(rem_obj))
+            self.xobj = weakref.ref(obj,
+                                    lambda ref, rem_obj=obj: xremove(rem_obj))
         except TypeError:
             self.xobj = obj
             if not allow_ref:
@@ -105,8 +114,9 @@ def timestamp():
 
 def xadd(obj, full_path, allow_ref=False, log=False, toggle_feature=None):
     """
-        allow_ref -- allow ref. for built-in types weak references are not allowed,
-                   if use_ref is False, an exception will be raised
+        allow_ref -- allow ref.
+            for built-in types weak references are not allowed,
+            if use_ref is False, an exception will be raised
     """
     paths = full_path.split('/')
     name = paths.pop()
@@ -120,16 +130,26 @@ def xadd(obj, full_path, allow_ref=False, log=False, toggle_feature=None):
         if sxpath == '':
             continue
         if sxpath not in father_pnode.sons:
-            xpath = XPathNode(father_pnode, sxpath, allow_ref=allow_ref, toggle_feature=toggle_feature)
+            xpath = XPathNode(father_pnode,
+                              sxpath,
+                              allow_ref=allow_ref,
+                              toggle_feature=toggle_feature)
             father_pnode.sons[sxpath] = xpath
             father_pnode = xpath
         else:
             father_pnode = father_pnode.sons[sxpath]
     save_obj = None if log else obj
-    pnode = father_pnode.sons[name] if name in father_pnode.sons \
-        else XPathNode(father_pnode, name, save_obj, allow_ref=allow_ref, toggle_feature=toggle_feature)
+    if name in father_pnode.snos:
+        pnode = father_pnode.sons[name]
+    else:
+        pnode = XPathNode(father_pnode,
+                          name,
+                          save_obj,
+                          allow_ref=allow_ref,
+                          toggle_feature=toggle_feature)
     father_pnode.sons[name] = pnode
-    #if not pnode.scheme: # TODO: to support dynamic scheme, how to add static scheme for performance???
+    # if not pnode.scheme:
+    # TODO: support dynamic scheme, how to add static scheme for performance?
     add_scheme(pnode, obj, log)
 
     if log:
@@ -142,7 +162,7 @@ def xadd(obj, full_path, allow_ref=False, log=False, toggle_feature=None):
         data = put_in_right_slots(pnode.scheme, dec_obj[0], dec_obj[1])
         data[TIMESTAMP_SLOT] = timestamp()
         if dec_obj:
-            #TODO: if empty data ?
+            # TODO: if empty data ?
             pnode.logs.append(data)
         return
     obj_to_path[id(obj)] = full_path
@@ -248,7 +268,9 @@ def is_string(field):
 
 
 def is_container_field(field):
-    if isinstance(field, collections.Iterable) and not is_string(field) and not isinstance(field, tuple):
+    if isinstance(field, collections.Iterable) and \
+       not is_string(field) and \
+       not isinstance(field, tuple):
         return True
     return False
 
@@ -306,7 +328,11 @@ def add_cross_if_dir(name, son_dir):
     return name
 
 
-def decompose_fields(obj_inspect, show_scheme, show_data, ret_fields=None, it=0):
+def decompose_fields(obj_inspect,
+                     show_scheme,
+                     show_data,
+                     ret_fields=None,
+                     it=0):
     if ret_fields is None:
         ret_fields = list()
     if is_container_field(obj_inspect):
@@ -314,7 +340,11 @@ def decompose_fields(obj_inspect, show_scheme, show_data, ret_fields=None, it=0)
         if isinstance(obj_inspect, dict):
             inspect = list(obj_inspect.values())
             if inspect and is_simple_field(inspect[0]):
-                extrtact_simple_dict(inspect, obj_inspect, ret_fields, show_data, show_scheme)
+                extrtact_simple_dict(inspect,
+                                     obj_inspect,
+                                     ret_fields,
+                                     show_data,
+                                     show_scheme)
                 return ret_fields
         if show_scheme:
             inspect = inspect[:1]
@@ -325,7 +355,11 @@ def decompose_fields(obj_inspect, show_scheme, show_data, ret_fields=None, it=0)
         return append_data(ret_fields, obj_inspect, show_scheme, show_data)
 
 
-def extrtact_simple_dict(inspect, obj_inspect, ret_fields, show_data, show_scheme):
+def extrtact_simple_dict(inspect,
+                         obj_inspect,
+                         ret_fields,
+                         show_data,
+                         show_scheme):
     if show_scheme:
         ret_fields.append(list(obj_inspect.keys()))
     if show_data:
@@ -349,9 +383,12 @@ def xdump(path, show_scheme=True, show_data=True):
         ret_fields.extend(xobj)
         return ret_fields
     def_interval = sys.getcheckinterval()
-    sys.setcheckinterval(1000000000)  # TODO: maybe copy before and no need to lock?
+    # TODO: maybe copy before and no need to lock?
+    sys.setcheckinterval(1000000000)
     try:
-        ret_fields.extend(decompose_fields(xobj, show_scheme=False, show_data=show_data))
+        ret_fields.extend(decompose_fields(xobj,
+                                           show_scheme=False,
+                                           show_data=show_data))
     except Exception as e:
         raise e
     finally:
@@ -414,11 +451,14 @@ class XNodeClient(object):
     def rec_msg_from_server(self):
         json = self.req.recv_json()
         print("Recved: %s" % json)
-        return json["req_id"], json["query"], json["timestamp"], json["widget_id"]
+        return (json["req_id"], json["query"],
+                json["timestamp"], json["widget_id"])
 
     def xnode_run(self, node_type, node_index, cluster_key, host_name):
         print("staring xnode_run")
-        tcpStr = 'tcp://{xrayio_host}:{port}'.format(xrayio_host=self.XRAYIO_HOST, port=self.XRAYIO_PORT)
+        tcpStrFormat = 'tcp://{xrayio_host}:{port}'
+        tcpStr = tcpStrFormat.format(xrayio_host=self.XRAYIO_HOST,
+                                     port=self.XRAYIO_PORT)
         self.nid = xnode_id(node_type, node_index, cluster_key, host_name)
         while True:
             self.req.setsockopt(zmq.IDENTITY, self.nid.encode('ascii'))
@@ -455,6 +495,7 @@ class XNodeClient(object):
         self.send_msg_to_server(['xnode-exit-{}'.format(self.nid),
                                  list(all_paths().keys())], '-1', 0)
 
+
 xclient = XNodeClient()
 
 
@@ -478,7 +519,10 @@ def xnode_client(node_type, cluster_key=None, node_index='', host_name=None):
         result = xnode_args()
         cluster_key = result.key
 
-    thr = threading.Thread(target=xclient.xnode_run, args=(node_type, node_index, cluster_key, host_name))
+    thr = threading.Thread(target=xclient.xnode_run,
+                           args=(node_type,
+                                 node_index,
+                                 cluster_key,
+                                 host_name))
     thr.daemon = True
     thr.start()
-
